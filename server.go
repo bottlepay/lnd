@@ -3134,7 +3134,8 @@ func (s *server) peerConnected(conn net.Conn, connReq *connmgr.ConnReq,
 		MaxChannelFeeAllocation: s.cfg.MaxChannelFeeAllocation,
 		MaxAnchorsCommitFeeRate: chainfee.SatPerKVByte(
 			s.cfg.MaxCommitFeeRateAnchors * 1000).FeePerKWeight(),
-		Quit: s.quit,
+		ChannelCommitInterval: s.cfg.ChannelCommitInterval,
+		Quit:                  s.quit,
 	}
 
 	copy(pCfg.PubKeyBytes[:], peerAddr.IdentityKey.SerializeCompressed())

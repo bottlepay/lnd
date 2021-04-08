@@ -128,6 +128,10 @@ const (
 	// commitment output.
 	// TODO(halseth): find a more scientific choice of value.
 	defaultMaxLocalCSVDelay = 10000
+
+	// defaultChannelCommitInterval is the default maximum time between receiving a
+	// channel state update and signing a new commitment.
+	defaultChannelCommitInterval = 50 * time.Millisecond
 )
 
 var (
@@ -273,6 +277,8 @@ type Config struct {
 	Color                         string        `long:"color" description:"The color of the node in hex format (i.e. '#3399FF'). Used to customize node appearance in intelligence services"`
 	MinChanSize                   int64         `long:"minchansize" description:"The smallest channel size (in satoshis) that we should accept. Incoming channels smaller than this will be rejected"`
 	MaxChanSize                   int64         `long:"maxchansize" description:"The largest channel size (in satoshis) that we should accept. Incoming channels larger than this will be rejected"`
+
+	ChannelCommitInterval time.Duration `long:"channel-commit-interval" description:"The maximum time that is allowed to pass between receiving a channel state update and signing the next commitment. Setting this to a longer duration allows for more efficient channel operations at the cost of latency."`
 
 	DefaultRemoteMaxHtlcs uint16 `long:"default-remote-max-htlcs" description:"The default max_htlc applied when opening or accepting channels. This value limits the number of concurrent HTLCs that the remote party can add to the commitment. The maximum possible value is 483."`
 
@@ -487,6 +493,7 @@ func DefaultConfig() Config {
 		DB:                      lncfg.DefaultDB(),
 		registeredChains:        chainreg.NewChainRegistry(),
 		ActiveNetParams:         chainreg.BitcoinTestNetParams,
+		ChannelCommitInterval:   defaultChannelCommitInterval,
 	}
 }
 
