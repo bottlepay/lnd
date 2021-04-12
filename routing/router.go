@@ -1968,10 +1968,7 @@ func (r *ChannelRouter) sendPayment(
 
 	// We'll also fetch the current block height so we can properly
 	// calculate the required HTLC time locks within the route.
-	_, currentHeight, err := r.cfg.Chain.GetBestBlock()
-	if err != nil {
-		return [32]byte{}, nil, err
-	}
+	currentHeight := int32(atomic.LoadUint32(&r.bestHeight))
 
 	// Now set up a paymentLifecycle struct with these params, such that we
 	// can resume the payment from the current state.
