@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"io"
+	"sync"
 
 	"github.com/btcsuite/btcd/btcec"
 	sphinx "github.com/lightningnetwork/lightning-onion"
@@ -251,54 +252,60 @@ func (p *OnionProcessor) DecodeHopIterators(id []byte,
 
 	tx := p.router.BeginTxn(id, batchSize)
 
-	for i, req := range reqs {
-		onionPkt := &onionPkts[i]
-		resp := &resps[i]
+	var wg sync.WaitGroup
+	for loopi, loopreq := range reqs {
+		onionPkt := &onionPkts[loopi]
+		resp := &resps[loopi]
 
-		err := onionPkt.Decode(req.OnionReader)
-		switch err {
-		case nil:
-			// success
+		i := loopi
+		req := loopreq
 
-		case sphinx.ErrInvalidOnionVersion:
-			resp.FailCode = lnwire.CodeInvalidOnionVersion
-			continue
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
 
-		case sphinx.ErrInvalidOnionKey:
-			resp.FailCode = lnwire.CodeInvalidOnionKey
-			continue
+			err := onionPkt.Decode(req.OnionReader)
+			switch err {
+			case nil:
+				// success
 
-		default:
-			log.Errorf("unable to decode onion packet: %v", err)
-			resp.FailCode = lnwire.CodeInvalidOnionKey
-			continue
-		}
+			case sphinx.ErrInvalidOnionVersion:
+				resp.FailCode = lnwire.CodeInvalidOnionVersion
+				return
 
-		err = tx.ProcessOnionPacket(
-			uint16(i), onionPkt, req.RHash, req.IncomingCltv,
-		)
-		switch err {
-		case nil:
-			// success
+			case sphinx.ErrInvalidOnionKey:
+				resp.FailCode = lnwire.CodeInvalidOnionKey
+				return
 
-		case sphinx.ErrInvalidOnionVersion:
-			resp.FailCode = lnwire.CodeInvalidOnionVersion
-			continue
+			default:
+				log.Errorf("unable to decode onion packet: %v", err)
+				resp.FailCode = lnwire.CodeInvalidOnionKey
+				return
+			}
 
-		case sphinx.ErrInvalidOnionHMAC:
-			resp.FailCode = lnwire.CodeInvalidOnionHmac
-			continue
+			err = tx.ProcessOnionPacket(
+				uint16(i), onionPkt, req.RHash, req.IncomingCltv,
+			)
+			switch err {
+			case nil:
+				// success
 
-		case sphinx.ErrInvalidOnionKey:
-			resp.FailCode = lnwire.CodeInvalidOnionKey
-			continue
+			case sphinx.ErrInvalidOnionVersion:
+				resp.FailCode = lnwire.CodeInvalidOnionVersion
 
-		default:
-			log.Errorf("unable to process onion packet: %v", err)
-			resp.FailCode = lnwire.CodeInvalidOnionKey
-			continue
-		}
+			case sphinx.ErrInvalidOnionHMAC:
+				resp.FailCode = lnwire.CodeInvalidOnionHmac
+
+			case sphinx.ErrInvalidOnionKey:
+				resp.FailCode = lnwire.CodeInvalidOnionKey
+
+			default:
+				log.Errorf("unable to process onion packet: %v", err)
+				resp.FailCode = lnwire.CodeInvalidOnionKey
+			}
+		}()
 	}
+	wg.Wait()
 
 	// With that batch created, we will now attempt to write the shared
 	// secrets to disk. This operation will returns the set of indices that
