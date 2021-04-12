@@ -2190,6 +2190,18 @@ func (s *Switch) getLinks(destination [33]byte) ([]ChannelLink, error) {
 	return channelLinks, nil
 }
 
+func (s *Switch) GetLinks() ([]ChannelLink, error) {
+	s.indexMtx.RLock()
+	defer s.indexMtx.RUnlock()
+
+	channelLinks := make([]ChannelLink, 0)
+	for _, link := range s.linkIndex {
+		channelLinks = append(channelLinks, link)
+	}
+
+	return channelLinks, nil
+}
+
 // CircuitModifier returns a reference to subset of the interfaces provided by
 // the circuit map, to allow links to open and close circuits.
 func (s *Switch) CircuitModifier() CircuitModifier {

@@ -698,25 +698,28 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		return nil, err
 	}
 
-	queryBandwidth := func(edge *channeldb.ChannelEdgeInfo) lnwire.MilliSatoshi {
-		cid := lnwire.NewChanIDFromOutPoint(&edge.ChannelPoint)
-		link, err := s.htlcSwitch.GetLink(cid)
+	queryBandwidth := func() map[uint64]lnwire.MilliSatoshi {
+		bandwidth := make(map[uint64]lnwire.MilliSatoshi)
+		links, err := s.htlcSwitch.GetLinks()
 		if err != nil {
 			// If the link isn't online, then we'll report
 			// that it has zero bandwidth to the router.
-			return 0
+			return bandwidth
 		}
 
-		// If the link is found within the switch, but it isn't
-		// yet eligible to forward any HTLCs, then we'll treat
-		// it as if it isn't online in the first place.
-		if !link.EligibleToForward() {
-			return 0
-		}
+		for _, link := range links {
+			// If the link is found within the switch, but it isn't
+			// yet eligible to forward any HTLCs, then we'll treat
+			// it as if it isn't online in the first place.
+			if !link.EligibleToForward() {
+				continue
+			}
 
-		// Otherwise, we'll return the current best estimate
-		// for the available bandwidth for the link.
-		return link.Bandwidth()
+			// Otherwise, we'll return the current best estimate
+			// for the available bandwidth for the link.
+			bandwidth[link.ShortChanID().ToUint64()] = link.Bandwidth()
+		}
+		return bandwidth
 	}
 
 	// Instantiate mission control with config from the sub server.
