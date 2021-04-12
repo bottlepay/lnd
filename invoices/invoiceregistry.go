@@ -698,22 +698,22 @@ func (i *InvoiceRegistry) cancelSingleHtlc(invoiceRef channeldb.InvoiceRef,
 
 // processKeySend just-in-time inserts an invoice if this htlc is a keysend
 // htlc.
-func (i *InvoiceRegistry) processKeySend(ctx invoiceUpdateCtx) error {
+func (i *InvoiceRegistry) processKeySend(ctx invoiceUpdateCtx) (HtlcResolution, error) {
 	// Retrieve keysend record if present.
 	preimageSlice, ok := ctx.customRecords[record.KeySendType]
 	if !ok {
-		return nil
+		return nil, nil
 	}
 
 	// Cancel htlc is preimage is invalid.
 	preimage, err := lntypes.MakePreimage(preimageSlice)
 	if err != nil || preimage.Hash() != ctx.hash {
-		return errors.New("invalid keysend preimage")
+		return nil, errors.New("invalid keysend preimage")
 	}
 
 	// Only allow keysend for non-mpp payments.
 	if ctx.mpp != nil {
-		return errors.New("no mpp keysend supported")
+		return nil, errors.New("no mpp keysend supported")
 	}
 
 	// Create an invoice for the htlc amount.
@@ -732,7 +732,7 @@ func (i *InvoiceRegistry) processKeySend(ctx invoiceUpdateCtx) error {
 	// Pre-check expiry here to prevent inserting an invoice that will not
 	// be settled.
 	if ctx.expiry < uint32(ctx.currentHeight+finalCltvDelta) {
-		return errors.New("final expiry too soon")
+		return nil, errors.New("final expiry too soon")
 	}
 
 	// The invoice database indexes all invoices by payment address, however
@@ -754,6 +754,13 @@ func (i *InvoiceRegistry) processKeySend(ctx invoiceUpdateCtx) error {
 			PaymentAddr:     payAddr,
 			Features:        features,
 		},
+		State: channeldb.ContractSettled,
+		Htlcs: map[channeldb.CircuitKey]*channeldb.InvoiceHTLC{
+			ctx.circuitKey: &channeldb.InvoiceHTLC{
+				State: channeldb.HtlcStateSettled,
+				// More fields required.
+			},
+		},
 	}
 
 	if i.cfg.KeysendHoldTime != 0 {
@@ -765,10 +772,14 @@ func (i *InvoiceRegistry) processKeySend(ctx invoiceUpdateCtx) error {
 	// may be a replay.
 	_, err = i.AddInvoice(invoice, ctx.hash)
 	if err != nil && err != channeldb.ErrDuplicateInvoice {
-		return err
+		return nil, err
 	}
 
-	return nil
+	htlcSettleResolution := ctx.settleRes(preimage, ResultSettled)
+
+	i.notifyClients(ctx.hash, invoice, invoice.State)
+
+	return htlcSettleResolution, nil
 }
 
 // NotifyExitHopHtlc attempts to mark an invoice as settled. The return value
@@ -808,13 +819,17 @@ func (i *InvoiceRegistry) NotifyExitHopHtlc(rHash lntypes.Hash,
 	// AddInvoice obtains its own lock. This is no problem, because the
 	// operation is idempotent.
 	if i.cfg.AcceptKeySend {
-		err := i.processKeySend(ctx)
+		resolution, err := i.processKeySend(ctx)
 		if err != nil {
 			ctx.log(fmt.Sprintf("keysend error: %v", err))
 
 			return NewFailResolution(
 				circuitKey, currentHeight, ResultKeySendError,
 			), nil
+		}
+
+		if resolution != nil {
+			return resolution, nil
 		}
 	}
 
