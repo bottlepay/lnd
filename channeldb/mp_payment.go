@@ -6,7 +6,6 @@ import (
 	"io"
 	"time"
 
-	"github.com/btcsuite/btcd/btcec"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -22,7 +21,7 @@ type HTLCAttemptInfo struct {
 	AttemptID uint64
 
 	// SessionKey is the ephemeral key used for this attempt.
-	SessionKey *btcec.PrivateKey
+	SessionKey []byte
 
 	// Route is the route attempted to send the HTLC.
 	Route route.Route

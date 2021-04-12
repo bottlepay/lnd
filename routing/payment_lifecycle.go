@@ -5,6 +5,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/btcsuite/btcd/btcec"
 	"github.com/davecgh/go-spew/spew"
 	sphinx "github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/channeldb"
@@ -469,10 +470,11 @@ func (p *shardHandler) collectResult(attempt *channeldb.HTLCAttemptInfo) (
 	*shardResult, error) {
 
 	getDecryptor := func() (*htlcswitch.SphinxErrorDecrypter, error) {
+		sessionKey, _ := btcec.PrivKeyFromBytes(btcec.S256(), attempt.SessionKey)
+
 		// Regenerate the circuit for this attempt.
 		_, circuit, err := generateSphinxPacket(
-			&attempt.Route, p.paymentHash[:],
-			attempt.SessionKey,
+			&attempt.Route, p.paymentHash[:], sessionKey,
 		)
 		if err != nil {
 			return nil, err
@@ -638,7 +640,7 @@ func (p *shardHandler) createNewPaymentAttempt(rt *route.Route) (
 	attempt := &channeldb.HTLCAttemptInfo{
 		AttemptID:   attemptID,
 		AttemptTime: p.router.cfg.Clock.Now(),
-		SessionKey:  sessionKey,
+		SessionKey:  sessionKey.Serialize(),
 		Route:       *rt,
 	}
 
