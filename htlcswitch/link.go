@@ -401,7 +401,7 @@ type channelLink struct {
 // hodlHtlc contains htlc data that is required for resolution.
 type hodlHtlc struct {
 	pd         *lnwallet.PaymentDescriptor
-	obfuscator hop.ErrorEncrypter
+	obfuscator func() hop.ErrorEncrypter
 }
 
 // NewChannelLink creates a new instance of a ChannelLink given a configuration
@@ -1286,7 +1286,7 @@ func (l *channelLink) processHtlcResolution(resolution invoices.HtlcResolution,
 		failure := getResolutionFailure(res, htlc.pd.Amount)
 
 		l.sendHTLCError(
-			htlc.pd, failure, htlc.obfuscator, true,
+			htlc.pd, failure, htlc.obfuscator(), true,
 		)
 		return nil
 
@@ -2709,22 +2709,19 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 			continue
 		}
 
-		// Retrieve onion obfuscator from onion blob in order to
-		// produce initial obfuscation of the onion failureCode.
-		obfuscator, failureCode := chanIterator.ExtractErrorEncrypter(
-			l.cfg.ExtractErrorEncrypter,
-		)
-		if failureCode != lnwire.CodeNone {
-			// If we're unable to process the onion blob than we
-			// should send the malformed htlc error to payment
-			// sender.
-			l.sendMalformedHTLCError(
-				pd.HtlcIndex, failureCode, onionBlob[:], pd.SourceRef,
+		getObfuscator := func() hop.ErrorEncrypter {
+			// Retrieve onion obfuscator from onion blob in order to
+			// produce initial obfuscation of the onion failureCode.
+			obfuscator, failureCode := chanIterator.ExtractErrorEncrypter(
+				l.cfg.ExtractErrorEncrypter,
 			)
+			if failureCode != lnwire.CodeNone {
+				l.log.Errorf("unable to decode onion "+
+					"obfuscator: %v", failureCode)
+				return nil
+			}
 
-			l.log.Errorf("unable to decode onion "+
-				"obfuscator: %v", failureCode)
-			continue
+			return obfuscator
 		}
 
 		heightNow := l.cfg.Switch.BestHeight()
@@ -2748,7 +2745,7 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 			// later date
 			failure := lnwire.NewInvalidOnionPayload(failedType, 0)
 			l.sendHTLCError(
-				pd, NewLinkError(failure), obfuscator, false,
+				pd, NewLinkError(failure), getObfuscator(), false,
 			)
 
 			l.log.Errorf("unable to decode forwarding "+
@@ -2760,8 +2757,9 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 
 		switch fwdInfo.NextHop {
 		case hop.Exit:
+
 			err := l.processExitHop(
-				pd, obfuscator, fwdInfo, heightNow, pld,
+				pd, getObfuscator, fwdInfo, heightNow, pld,
 			)
 			if err != nil {
 				l.fail(LinkFailureError{code: ErrInternalError},
@@ -2774,6 +2772,8 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 		// There are additional channels left within this route. So
 		// we'll simply do some forwarding package book-keeping.
 		default:
+			obfuscator := getObfuscator()
+
 			// If hodl.AddIncoming is requested, we will not
 			// validate the forwarded ADD, nor will we send the
 			// packet to the htlc switch.
@@ -2925,7 +2925,7 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 // processExitHop handles an htlc for which this link is the exit hop. It
 // returns a boolean indicating whether the commitment tx needs an update.
 func (l *channelLink) processExitHop(pd *lnwallet.PaymentDescriptor,
-	obfuscator hop.ErrorEncrypter, fwdInfo hop.ForwardingInfo,
+	obfuscator func() hop.ErrorEncrypter, fwdInfo hop.ForwardingInfo,
 	heightNow uint32, payload invoices.Payload) error {
 
 	// If hodl.ExitSettle is requested, we will not validate the final hop's
@@ -2949,7 +2949,7 @@ func (l *channelLink) processExitHop(pd *lnwallet.PaymentDescriptor,
 		failure := NewLinkError(
 			lnwire.NewFinalIncorrectHtlcAmount(pd.Amount),
 		)
-		l.sendHTLCError(pd, failure, obfuscator, true)
+		l.sendHTLCError(pd, failure, obfuscator(), true)
 
 		return nil
 	}
@@ -2964,7 +2964,7 @@ func (l *channelLink) processExitHop(pd *lnwallet.PaymentDescriptor,
 		failure := NewLinkError(
 			lnwire.NewFinalIncorrectCltvExpiry(pd.Timeout),
 		)
-		l.sendHTLCError(pd, failure, obfuscator, true)
+		l.sendHTLCError(pd, failure, obfuscator(), true)
 
 		return nil
 	}
