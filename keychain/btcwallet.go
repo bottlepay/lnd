@@ -3,6 +3,7 @@ package keychain
 import (
 	"crypto/sha256"
 	"fmt"
+	"sync"
 
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/btcsuite/btcwallet/waddrmgr"
@@ -57,6 +58,9 @@ type BtcWalletKeyRing struct {
 	// lightningScope is a pointer to the scope that we'll be using as a
 	// sub key manager to derive all the keys that we require.
 	lightningScope *waddrmgr.ScopedKeyManager
+
+	nodePrivKey     *btcec.PrivateKey
+	nodePrivKeyLock sync.Mutex
 }
 
 // NewBtcWalletKeyRing creates a new implementation of the
@@ -250,6 +254,13 @@ func (b *BtcWalletKeyRing) DeriveKey(keyLoc KeyLocator) (KeyDescriptor, error) {
 func (b *BtcWalletKeyRing) DerivePrivKey(keyDesc KeyDescriptor) (
 	*btcec.PrivateKey, error) {
 
+	b.nodePrivKeyLock.Lock()
+	if b.nodePrivKey != nil && keyDesc.KeyLocator.Family == KeyFamilyNodeKey && keyDesc.KeyLocator.Index == 0 {
+		defer b.nodePrivKeyLock.Unlock()
+		return b.nodePrivKey, nil
+	}
+	b.nodePrivKeyLock.Unlock()
+
 	var key *btcec.PrivateKey
 
 	db := b.wallet.Database()
@@ -342,6 +353,12 @@ func (b *BtcWalletKeyRing) DerivePrivKey(keyDesc KeyDescriptor) (
 	})
 	if err != nil {
 		return nil, err
+	}
+
+	if keyDesc.KeyLocator.Family == KeyFamilyNodeKey && keyDesc.KeyLocator.Index == 0 {
+		b.nodePrivKeyLock.Lock()
+		b.nodePrivKey = key
+		b.nodePrivKeyLock.Unlock()
 	}
 
 	return key, nil
