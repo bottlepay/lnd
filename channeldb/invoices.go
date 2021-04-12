@@ -552,9 +552,15 @@ func (d *DB) AddInvoice(newInvoice *Invoice, paymentHash lntypes.Hash) (
 			invoiceNum = byteOrder.Uint32(invoiceCounter)
 		}
 
+		// Serialize the invoice itself to be written to the disk.
+		var buf bytes.Buffer
+		if err := serializeInvoice(&buf, newInvoice); err != nil {
+			return err
+		}
+
 		newIndex, err := putInvoice(
 			invoices, invoiceIndex, payAddrIndex, addIndex,
-			newInvoice, invoiceNum, paymentHash,
+			newInvoice, buf.Bytes(), invoiceNum, paymentHash,
 		)
 		if err != nil {
 			return err
@@ -576,6 +582,13 @@ func (d *DB) AddInvoiceDelayed(newInvoice *Invoice, paymentHash lntypes.Hash) (
 	func(kvdb.RwTx) error, error) {
 
 	if err := validateInvoice(newInvoice, paymentHash); err != nil {
+		return nil, err
+	}
+
+	// Serialize the invoice itself to be written to the disk. Do it outside
+	// of the db tx to minimize the lock time.
+	var buf bytes.Buffer
+	if err := serializeInvoice(&buf, newInvoice); err != nil {
 		return nil, err
 	}
 
@@ -633,7 +646,7 @@ func (d *DB) AddInvoiceDelayed(newInvoice *Invoice, paymentHash lntypes.Hash) (
 
 		_, err = putInvoice(
 			invoices, invoiceIndex, payAddrIndex, addIndex,
-			newInvoice, invoiceNum, paymentHash,
+			newInvoice, buf.Bytes(), invoiceNum, paymentHash,
 		)
 		if err != nil {
 			return err
@@ -1094,7 +1107,7 @@ func (d *DB) InvoicesSettledSince(sinceSettleIndex uint64) ([]Invoice, error) {
 }
 
 func putInvoice(invoices, invoiceIndex, payAddrIndex, addIndex kvdb.RwBucket,
-	i *Invoice, invoiceNum uint32, paymentHash lntypes.Hash) (
+	i *Invoice, iSerialized []byte, invoiceNum uint32, paymentHash lntypes.Hash) (
 	uint64, error) {
 
 	// Create the invoice key which is just the big-endian representation
@@ -1148,13 +1161,7 @@ func putInvoice(invoices, invoiceIndex, payAddrIndex, addIndex kvdb.RwBucket,
 
 	i.AddIndex = nextAddSeqNo
 
-	// Finally, serialize the invoice itself to be written to the disk.
-	var buf bytes.Buffer
-	if err := serializeInvoice(&buf, i); err != nil {
-		return 0, err
-	}
-
-	if err := invoices.Put(invoiceKey[:], buf.Bytes()); err != nil {
+	if err := invoices.Put(invoiceKey[:], iSerialized); err != nil {
 		return 0, err
 	}
 
