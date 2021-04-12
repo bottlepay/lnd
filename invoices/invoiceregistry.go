@@ -7,6 +7,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/lightningnetwork/lnd/channeldb/kvdb"
+
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/clock"
 	"github.com/lightningnetwork/lnd/lntypes"
@@ -698,22 +700,22 @@ func (i *InvoiceRegistry) cancelSingleHtlc(invoiceRef channeldb.InvoiceRef,
 
 // processKeySend just-in-time inserts an invoice if this htlc is a keysend
 // htlc.
-func (i *InvoiceRegistry) processKeySend(ctx invoiceUpdateCtx) (HtlcResolution, error) {
+func (i *InvoiceRegistry) processKeySend(ctx invoiceUpdateCtx) (func(kvdb.RwTx) error, HtlcResolution, error) {
 	// Retrieve keysend record if present.
 	preimageSlice, ok := ctx.customRecords[record.KeySendType]
 	if !ok {
-		return nil, nil
+		return nil, nil, nil
 	}
 
 	// Cancel htlc is preimage is invalid.
 	preimage, err := lntypes.MakePreimage(preimageSlice)
 	if err != nil || preimage.Hash() != ctx.hash {
-		return nil, errors.New("invalid keysend preimage")
+		return nil, nil, errors.New("invalid keysend preimage")
 	}
 
 	// Only allow keysend for non-mpp payments.
 	if ctx.mpp != nil {
-		return nil, errors.New("no mpp keysend supported")
+		return nil, nil, errors.New("no mpp keysend supported")
 	}
 
 	// Create an invoice for the htlc amount.
@@ -732,7 +734,7 @@ func (i *InvoiceRegistry) processKeySend(ctx invoiceUpdateCtx) (HtlcResolution, 
 	// Pre-check expiry here to prevent inserting an invoice that will not
 	// be settled.
 	if ctx.expiry < uint32(ctx.currentHeight+finalCltvDelta) {
-		return nil, errors.New("final expiry too soon")
+		return nil, nil, errors.New("final expiry too soon")
 	}
 
 	// The invoice database indexes all invoices by payment address, however
@@ -768,18 +770,24 @@ func (i *InvoiceRegistry) processKeySend(ctx invoiceUpdateCtx) (HtlcResolution, 
 		invoice.Terms.Expiry = i.cfg.KeysendHoldTime
 	}
 
-	// Insert invoice into database. Ignore duplicates, because this
-	// may be a replay.
-	_, err = i.AddInvoice(invoice, ctx.hash)
-	if err != nil && err != channeldb.ErrDuplicateInvoice {
-		return nil, err
+	commitFunc, err := i.cdb.AddInvoiceDelayed(invoice, ctx.hash)
+	if err != nil {
+		return nil, nil, err
 	}
 
 	htlcSettleResolution := ctx.settleRes(preimage, ResultSettled)
 
-	i.notifyClients(ctx.hash, invoice, invoice.State)
+	return func(tx kvdb.RwTx) error {
+		err := commitFunc(tx)
+		if err != nil {
+			return err
+		}
 
-	return htlcSettleResolution, nil
+		// Todo: only do this when db tx succeeds. This is too early.
+		i.notifyClients(ctx.hash, invoice, invoice.State)
+
+		return nil
+	}, htlcSettleResolution, nil
 }
 
 // NotifyExitHopHtlc attempts to mark an invoice as settled. The return value
@@ -800,7 +808,7 @@ func (i *InvoiceRegistry) processKeySend(ctx invoiceUpdateCtx) (HtlcResolution, 
 func (i *InvoiceRegistry) NotifyExitHopHtlc(rHash lntypes.Hash,
 	amtPaid lnwire.MilliSatoshi, expiry uint32, currentHeight int32,
 	circuitKey channeldb.CircuitKey, hodlChan chan<- interface{},
-	payload Payload) (HtlcResolution, error) {
+	payload Payload) (func(kvdb.RwTx) error, HtlcResolution, error) {
 
 	// Create the update context containing the relevant details of the
 	// incoming htlc.
@@ -819,17 +827,17 @@ func (i *InvoiceRegistry) NotifyExitHopHtlc(rHash lntypes.Hash,
 	// AddInvoice obtains its own lock. This is no problem, because the
 	// operation is idempotent.
 	if i.cfg.AcceptKeySend {
-		resolution, err := i.processKeySend(ctx)
+		commitFunc, resolution, err := i.processKeySend(ctx)
 		if err != nil {
 			ctx.log(fmt.Sprintf("keysend error: %v", err))
 
-			return NewFailResolution(
+			return nil, NewFailResolution(
 				circuitKey, currentHeight, ResultKeySendError,
 			), nil
 		}
 
 		if resolution != nil {
-			return resolution, nil
+			return commitFunc, resolution, nil
 		}
 	}
 
@@ -838,7 +846,7 @@ func (i *InvoiceRegistry) NotifyExitHopHtlc(rHash lntypes.Hash,
 	resolution, err := i.notifyExitHopHtlcLocked(&ctx, hodlChan)
 	i.Unlock()
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	switch r := resolution.(type) {
@@ -851,22 +859,22 @@ func (i *InvoiceRegistry) NotifyExitHopHtlc(rHash lntypes.Hash,
 				ctx.invoiceRef(), circuitKey, r.acceptTime,
 			)
 			if err != nil {
-				return nil, err
+				return nil, nil, err
 			}
 		}
 
 		// We return a nil resolution because htlc acceptances are
 		// represented as nil resolutions externally.
 		// TODO(carla) update calling code to handle accept resolutions.
-		return nil, nil
+		return nil, nil, nil
 
 	// A direct resolution was received for this htlc.
 	case HtlcResolution:
-		return r, nil
+		return nil, r, nil
 
 	// Fail if an unknown resolution type was received.
 	default:
-		return nil, errors.New("invalid resolution type")
+		return nil, nil, errors.New("invalid resolution type")
 	}
 }
 

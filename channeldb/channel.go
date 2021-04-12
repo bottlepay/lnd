@@ -2060,7 +2060,7 @@ func deserializeCommitDiff(r io.Reader) (*CommitDiff, error) {
 // transmit it to the remote party. The contents of the argument should be
 // sufficient to retransmit the updates and signature needed to reconstruct the
 // state in full, in the case that we need to retransmit.
-func (c *OpenChannel) AppendRemoteCommitChain(diff *CommitDiff) error {
+func (c *OpenChannel) AppendRemoteCommitChain(diff *CommitDiff, extra func(tx kvdb.RwTx) error) error {
 	c.Lock()
 	defer c.Unlock()
 
@@ -2072,6 +2072,13 @@ func (c *OpenChannel) AppendRemoteCommitChain(diff *CommitDiff) error {
 	}
 
 	return kvdb.Update(c.Db, func(tx kvdb.RwTx) error {
+		if extra != nil {
+			err := extra(tx)
+			if err != nil {
+				return err
+			}
+		}
+
 		// First, we'll grab the writable bucket where this channel's
 		// data resides.
 		chanBucket, err := fetchChanBucketRw(

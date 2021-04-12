@@ -234,7 +234,8 @@ func (h *htlcIncomingContestResolver) Resolve() (ContractResolver, error) {
 			HtlcID: h.htlc.HtlcIndex,
 		}
 
-		resolution, err := h.Registry.NotifyExitHopHtlc(
+		// Todo: handle delayed commit func.
+		_, resolution, err := h.Registry.NotifyExitHopHtlc(
 			h.htlc.RHash, h.htlc.Amt, h.htlcExpiry, currentHeight,
 			circuitKey, hodlChan, payload,
 		)

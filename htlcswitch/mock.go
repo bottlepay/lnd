@@ -20,6 +20,7 @@ import (
 	sphinx "github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/channeldb/kvdb"
 	"github.com/lightningnetwork/lnd/clock"
 	"github.com/lightningnetwork/lnd/contractcourt"
 	"github.com/lightningnetwork/lnd/htlcswitch/hop"
@@ -831,20 +832,20 @@ func (i *mockInvoiceRegistry) SettleHodlInvoice(preimage lntypes.Preimage) error
 func (i *mockInvoiceRegistry) NotifyExitHopHtlc(rhash lntypes.Hash,
 	amt lnwire.MilliSatoshi, expiry uint32, currentHeight int32,
 	circuitKey channeldb.CircuitKey, hodlChan chan<- interface{},
-	payload invoices.Payload) (invoices.HtlcResolution, error) {
+	payload invoices.Payload) (func(kvdb.RwTx) error, invoices.HtlcResolution, error) {
 
-	event, err := i.registry.NotifyExitHopHtlc(
+	_, event, err := i.registry.NotifyExitHopHtlc(
 		rhash, amt, expiry, currentHeight, circuitKey, hodlChan,
 		payload,
 	)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if i.settleChan != nil {
 		i.settleChan <- rhash
 	}
 
-	return event, nil
+	return nil, event, nil
 }
 
 func (i *mockInvoiceRegistry) CancelInvoice(payHash lntypes.Hash) error {

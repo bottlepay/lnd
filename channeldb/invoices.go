@@ -572,6 +572,77 @@ func (d *DB) AddInvoice(newInvoice *Invoice, paymentHash lntypes.Hash) (
 	return invoiceAddIndex, err
 }
 
+func (d *DB) AddInvoiceDelayed(newInvoice *Invoice, paymentHash lntypes.Hash) (
+	func(kvdb.RwTx) error, error) {
+
+	if err := validateInvoice(newInvoice, paymentHash); err != nil {
+		return nil, err
+	}
+
+	return func(tx kvdb.RwTx) error {
+		invoices, err := tx.CreateTopLevelBucket(invoiceBucket)
+		if err != nil {
+			return err
+		}
+
+		invoiceIndex, err := invoices.CreateBucketIfNotExists(
+			invoiceIndexBucket,
+		)
+		if err != nil {
+			return err
+		}
+		addIndex, err := invoices.CreateBucketIfNotExists(
+			addIndexBucket,
+		)
+		if err != nil {
+			return err
+		}
+
+		// Ensure that an invoice an identical payment hash doesn't
+		// already exist within the index.
+		if invoiceIndex.Get(paymentHash[:]) != nil {
+			return ErrDuplicateInvoice
+		}
+
+		// Check that we aren't inserting an invoice with a duplicate
+		// payment address. The all-zeros payment address is
+		// special-cased to support legacy keysend invoices which don't
+		// assign one. This is safe since later we also will avoid
+		// indexing them and avoid collisions.
+		payAddrIndex := tx.ReadWriteBucket(payAddrIndexBucket)
+		if newInvoice.Terms.PaymentAddr != BlankPayAddr {
+			if payAddrIndex.Get(newInvoice.Terms.PaymentAddr[:]) != nil {
+				return ErrDuplicatePayAddr
+			}
+		}
+
+		// If the current running payment ID counter hasn't yet been
+		// created, then create it now.
+		var invoiceNum uint32
+		invoiceCounter := invoiceIndex.Get(numInvoicesKey)
+		if invoiceCounter == nil {
+			var scratch [4]byte
+			byteOrder.PutUint32(scratch[:], invoiceNum)
+			err := invoiceIndex.Put(numInvoicesKey, scratch[:])
+			if err != nil {
+				return err
+			}
+		} else {
+			invoiceNum = byteOrder.Uint32(invoiceCounter)
+		}
+
+		_, err = putInvoice(
+			invoices, invoiceIndex, payAddrIndex, addIndex,
+			newInvoice, invoiceNum, paymentHash,
+		)
+		if err != nil {
+			return err
+		}
+
+		return nil
+	}, nil
+}
+
 // InvoicesAddedSince can be used by callers to seek into the event time series
 // of all the invoices added in the database. The specified sinceAddIndex
 // should be the highest add index that the caller knows of. This method will

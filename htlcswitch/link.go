@@ -16,6 +16,7 @@ import (
 	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lnd/build"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/channeldb/kvdb"
 	"github.com/lightningnetwork/lnd/contractcourt"
 	"github.com/lightningnetwork/lnd/htlcswitch/hodl"
 	"github.com/lightningnetwork/lnd/htlcswitch/hop"
@@ -393,6 +394,8 @@ type channelLink struct {
 
 	// log is a link-specific logging instance.
 	log btclog.Logger
+
+	extras []func(tx kvdb.RwTx) error
 
 	wg   sync.WaitGroup
 	quit chan struct{}
@@ -1256,6 +1259,19 @@ loop:
 	return nil
 }
 
+func (l *channelLink) processExtras(tx kvdb.RwTx) error {
+	for _, extra := range l.extras {
+		err := extra(tx)
+		if err != nil {
+			return err
+		}
+	}
+
+	l.extras = nil
+
+	return nil
+}
+
 // processHtlcResolution applies a received htlc resolution to the provided
 // htlc. When this function returns without an error, the commit tx should be
 // updated.
@@ -2065,7 +2081,7 @@ func (l *channelLink) updateCommitTx() error {
 		return nil
 	}
 
-	theirCommitSig, htlcSigs, pendingHTLCs, err := l.channel.SignNextCommitment()
+	theirCommitSig, htlcSigs, pendingHTLCs, err := l.channel.SignNextCommitment(l.processExtras)
 	if err == lnwallet.ErrNoWindow {
 		l.cfg.PendingCommitTicker.Resume()
 
@@ -2979,13 +2995,15 @@ func (l *channelLink) processExitHop(pd *lnwallet.PaymentDescriptor,
 		HtlcID: pd.HtlcIndex,
 	}
 
-	event, err := l.cfg.Registry.NotifyExitHopHtlc(
+	commitFunc, event, err := l.cfg.Registry.NotifyExitHopHtlc(
 		invoiceHash, pd.Amount, pd.Timeout, int32(heightNow),
 		circuitKey, l.hodlQueue.ChanIn(), payload,
 	)
 	if err != nil {
 		return err
 	}
+
+	l.extras = append(l.extras, commitFunc)
 
 	// Create a hodlHtlc struct and decide either resolved now or later.
 	htlc := hodlHtlc{

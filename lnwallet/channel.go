@@ -22,6 +22,7 @@ import (
 	"github.com/lightningnetwork/lnd/build"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/channeldb/kvdb"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -3501,7 +3502,7 @@ func (lc *LightningChannel) validateCommitmentSanity(theirLogCounter,
 // any). The HTLC signatures are sorted according to the BIP 69 order of the
 // HTLC's on the commitment transaction. Finally, the new set of pending HTLCs
 // for the remote party's commitment are also returned.
-func (lc *LightningChannel) SignNextCommitment() (lnwire.Sig, []lnwire.Sig, []channeldb.HTLC, error) {
+func (lc *LightningChannel) SignNextCommitment(extra func(tx kvdb.RwTx) error) (lnwire.Sig, []lnwire.Sig, []channeldb.HTLC, error) {
 
 	lc.Lock()
 	defer lc.Unlock()
@@ -3640,7 +3641,7 @@ func (lc *LightningChannel) SignNextCommitment() (lnwire.Sig, []lnwire.Sig, []ch
 	if err != nil {
 		return sig, htlcSigs, nil, err
 	}
-	err = lc.channelState.AppendRemoteCommitChain(commitDiff)
+	err = lc.channelState.AppendRemoteCommitChain(commitDiff, extra)
 	if err != nil {
 		return sig, htlcSigs, nil, err
 	}
@@ -3811,7 +3812,7 @@ func (lc *LightningChannel) ProcessChanSyncMsg(
 		// revocation, but also initiate a state transition to re-sync
 		// them.
 		if lc.OweCommitment(true) {
-			commitSig, htlcSigs, _, err := lc.SignNextCommitment()
+			commitSig, htlcSigs, _, err := lc.SignNextCommitment(nil)
 			switch {
 
 			// If we signed this state, then we'll accumulate
