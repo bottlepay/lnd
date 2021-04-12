@@ -468,26 +468,30 @@ func (p *shardHandler) collectResultAsync(attempt *channeldb.HTLCAttemptInfo) {
 func (p *shardHandler) collectResult(attempt *channeldb.HTLCAttemptInfo) (
 	*shardResult, error) {
 
-	// Regenerate the circuit for this attempt.
-	_, circuit, err := generateSphinxPacket(
-		&attempt.Route, p.paymentHash[:],
-		attempt.SessionKey,
-	)
-	if err != nil {
-		return nil, err
-	}
+	getDecryptor := func() (*htlcswitch.SphinxErrorDecrypter, error) {
+		// Regenerate the circuit for this attempt.
+		_, circuit, err := generateSphinxPacket(
+			&attempt.Route, p.paymentHash[:],
+			attempt.SessionKey,
+		)
+		if err != nil {
+			return nil, err
+		}
 
-	// Using the created circuit, initialize the error decrypter so we can
-	// parse+decode any failures incurred by this payment within the
-	// switch.
-	errorDecryptor := &htlcswitch.SphinxErrorDecrypter{
-		OnionErrorDecrypter: sphinx.NewOnionErrorDecrypter(circuit),
+		// Using the created circuit, initialize the error decrypter so we can
+		// parse+decode any failures incurred by this payment within the
+		// switch.
+		errorDecryptor := &htlcswitch.SphinxErrorDecrypter{
+			OnionErrorDecrypter: sphinx.NewOnionErrorDecrypter(circuit),
+		}
+
+		return errorDecryptor, nil
 	}
 
 	// Now ask the switch to return the result of the payment when
 	// available.
 	resultChan, err := p.router.cfg.Payer.GetPaymentResult(
-		attempt.AttemptID, p.paymentHash, errorDecryptor,
+		attempt.AttemptID, p.paymentHash, getDecryptor,
 	)
 	switch {
 

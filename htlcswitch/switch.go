@@ -369,7 +369,7 @@ func (s *Switch) ProcessContractResolution(msg contractcourt.ResolutionMsg) erro
 // flight. The switch shutting down is signaled by closing the channel. If the
 // paymentID is unknown, ErrPaymentIDNotFound will be returned.
 func (s *Switch) GetPaymentResult(paymentID uint64, paymentHash lntypes.Hash,
-	deobfuscator ErrorDecrypter) (<-chan *PaymentResult, error) {
+	deobfuscator func() (*SphinxErrorDecrypter, error)) (<-chan *PaymentResult, error) {
 
 	var (
 		nChan  <-chan *networkResult
@@ -856,7 +856,7 @@ func (s *Switch) handleLocalResponse(pkt *htlcPacket) {
 
 // extractResult uses the given deobfuscator to extract the payment result from
 // the given network message.
-func (s *Switch) extractResult(deobfuscator ErrorDecrypter, n *networkResult,
+func (s *Switch) extractResult(deobfuscator func() (*SphinxErrorDecrypter, error), n *networkResult,
 	paymentID uint64, paymentHash lntypes.Hash) (*PaymentResult, error) {
 
 	switch htlc := n.msg.(type) {
@@ -871,8 +871,13 @@ func (s *Switch) extractResult(deobfuscator ErrorDecrypter, n *networkResult,
 	// We've received a fail update which means we can finalize the
 	// user payment and return fail response.
 	case *lnwire.UpdateFailHTLC:
+		decryptor, err := deobfuscator()
+		if err != nil {
+			return nil, err
+		}
+
 		paymentErr := s.parseFailedPayment(
-			deobfuscator, paymentID, paymentHash, n.unencrypted,
+			decryptor, paymentID, paymentHash, n.unencrypted,
 			n.isResolution, htlc,
 		)
 

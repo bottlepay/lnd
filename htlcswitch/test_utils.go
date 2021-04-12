@@ -794,7 +794,10 @@ func preparePayment(sendingPeer, receivingPeer lnpeer.Peer,
 			return err
 		}
 		resultChan, err := sender.htlcSwitch.GetPaymentResult(
-			pid, hash, newMockDeobfuscator(),
+			pid, hash, func() (*SphinxErrorDecrypter, error) {
+				m := newMockDeobfuscator()
+				return m.(*SphinxErrorDecrypter), nil
+			},
 		)
 		if err != nil {
 			return err
@@ -1333,7 +1336,10 @@ func (n *twoHopNetwork) makeHoldPayment(sendingPeer, receivingPeer lnpeer.Peer,
 
 	go func() {
 		resultChan, err := sender.htlcSwitch.GetPaymentResult(
-			pid, rhash, newMockDeobfuscator(),
+			pid, rhash, func() (*SphinxErrorDecrypter, error) {
+				m := newMockDeobfuscator()
+				return m.(*SphinxErrorDecrypter), nil
+			},
 		)
 		if err != nil {
 			paymentErr <- err

@@ -170,7 +170,7 @@ type PaymentAttemptDispatcher interface {
 	// down is signaled by closing the channel. If the paymentID is
 	// unknown, ErrPaymentIDNotFound will be returned.
 	GetPaymentResult(paymentID uint64, paymentHash lntypes.Hash,
-		deobfuscator htlcswitch.ErrorDecrypter) (
+		deobfuscator func() (*htlcswitch.SphinxErrorDecrypter, error)) (
 		<-chan *htlcswitch.PaymentResult, error)
 
 	// CleanStore calls the underlying result store, telling it is safe to
