@@ -557,13 +557,13 @@ func (p *shardHandler) collectResult(attempt *channeldb.HTLCAttemptInfo) (
 		p.paymentHash, attempt.AttemptID)
 
 	// Report success to mission control.
-	err = p.router.cfg.MissionControl.ReportPaymentSuccess(
-		attempt.AttemptID, &attempt.Route,
-	)
-	if err != nil {
-		log.Errorf("Error reporting payment success to mc: %v",
-			err)
-	}
+	// err = p.router.cfg.MissionControl.ReportPaymentSuccess(
+	// 	attempt.AttemptID, &attempt.Route,
+	// )
+	// if err != nil {
+	// 	log.Errorf("Error reporting payment success to mc: %v",
+	// 		err)
+	// }
 
 	// In case of success we atomically store settle result to the DB move
 	// the shard to the settled state.
