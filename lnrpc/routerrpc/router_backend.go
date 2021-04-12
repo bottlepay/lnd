@@ -362,20 +362,8 @@ func (r *RouterBackend) MarshallRoute(route *route.Route) (*lnrpc.Route, error) 
 		TotalAmtMsat:  int64(route.TotalAmount),
 		Hops:          make([]*lnrpc.Hop, len(route.Hops)),
 	}
-	incomingAmt := route.TotalAmount
 	for i, hop := range route.Hops {
 		fee := route.HopFee(i)
-
-		// Channel capacity is not a defining property of a route. For
-		// backwards RPC compatibility, we retrieve it here from the
-		// graph.
-		chanCapacity, err := r.FetchChannelCapacity(hop.ChannelID)
-		if err != nil {
-			// If capacity cannot be retrieved, this may be a
-			// not-yet-received or private channel. Then report
-			// amount that is sent through the channel as capacity.
-			chanCapacity = incomingAmt.ToSatoshis()
-		}
 
 		// Extract the MPP fields if present on this hop.
 		var mpp *lnrpc.MPPRecord
@@ -390,7 +378,6 @@ func (r *RouterBackend) MarshallRoute(route *route.Route) (*lnrpc.Route, error) 
 
 		resp.Hops[i] = &lnrpc.Hop{
 			ChanId:           hop.ChannelID,
-			ChanCapacity:     int64(chanCapacity),
 			AmtToForward:     int64(hop.AmtToForward.ToSatoshis()),
 			AmtToForwardMsat: int64(hop.AmtToForward),
 			Fee:              int64(fee.ToSatoshis()),
@@ -403,7 +390,6 @@ func (r *RouterBackend) MarshallRoute(route *route.Route) (*lnrpc.Route, error) 
 			TlvPayload:    !hop.LegacyPayload,
 			MppRecord:     mpp,
 		}
-		incomingAmt = hop.AmtToForward
 	}
 
 	return resp, nil
