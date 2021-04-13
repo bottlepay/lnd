@@ -590,6 +590,7 @@ func (r *ChannelRouter) Start() error {
 			_, _, err := r.sendPayment(
 				payment.Info.Value, 0,
 				payment.Info.PaymentHash, 0, paySession,
+				nil,
 			)
 			if err != nil {
 				log.Errorf("Resuming payment with hash %v "+
@@ -1739,6 +1740,7 @@ func (r *ChannelRouter) SendPayment(payment *LightningPayment) ([32]byte,
 	return r.sendPayment(
 		payment.Amount, payment.FeeLimit, payment.PaymentHash,
 		payment.PayAttemptTimeout, paySession,
+		nil,
 	)
 }
 
@@ -1748,6 +1750,10 @@ func (r *ChannelRouter) SendPaymentAsync(payment *LightningPayment) error {
 	paySession, err := r.preparePayment(payment)
 	if err != nil {
 		return err
+	}
+
+	mpPayment := &channeldb.MPPayment{
+		Status: channeldb.StatusInFlight,
 	}
 
 	// Since this is the first time this payment is being made, we pass nil
@@ -1761,7 +1767,7 @@ func (r *ChannelRouter) SendPaymentAsync(payment *LightningPayment) error {
 
 		_, _, err := r.sendPayment(
 			payment.Amount, payment.FeeLimit, payment.PaymentHash,
-			payment.PayAttemptTimeout, paySession,
+			payment.PayAttemptTimeout, paySession, mpPayment,
 		)
 		if err != nil {
 			log.Errorf("Payment with hash %x failed: %v",
@@ -1964,7 +1970,7 @@ func (r *ChannelRouter) SendToRoute(hash lntypes.Hash, rt *route.Route) (
 func (r *ChannelRouter) sendPayment(
 	totalAmt, feeLimit lnwire.MilliSatoshi, paymentHash lntypes.Hash,
 	timeout time.Duration,
-	paySession PaymentSession) ([32]byte, *route.Route, error) {
+	paySession PaymentSession, freshPayment *channeldb.MPPayment) ([32]byte, *route.Route, error) {
 
 	// We'll also fetch the current block height so we can properly
 	// calculate the required HTLC time locks within the route.
@@ -1988,7 +1994,7 @@ func (r *ChannelRouter) sendPayment(
 		p.timeoutChan = time.After(timeout)
 	}
 
-	return p.resumePayment()
+	return p.resumePayment(freshPayment)
 
 }
 

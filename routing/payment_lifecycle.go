@@ -82,7 +82,7 @@ func (p *paymentLifecycle) paymentState(payment *channeldb.MPPayment) (
 }
 
 // resumePayment resumes the paymentLifecycle from the current state.
-func (p *paymentLifecycle) resumePayment() ([32]byte, *route.Route, error) {
+func (p *paymentLifecycle) resumePayment(freshPayment *channeldb.MPPayment) ([32]byte, *route.Route, error) {
 	shardHandler := &shardHandler{
 		router:      p.router,
 		paymentHash: p.paymentHash,
@@ -98,20 +98,22 @@ func (p *paymentLifecycle) resumePayment() ([32]byte, *route.Route, error) {
 	// If we had any existing attempts outstanding, we'll start by spinning
 	// up goroutines that'll collect their results and deliver them to the
 	// lifecycle loop below.
-	payment, err := p.router.cfg.Control.FetchPayment(
-		p.paymentHash,
-	)
-	if err != nil {
-		return [32]byte{}, nil, err
-	}
+	if freshPayment == nil {
+		payment, err := p.router.cfg.Control.FetchPayment(
+			p.paymentHash,
+		)
+		if err != nil {
+			return [32]byte{}, nil, err
+		}
 
-	for _, a := range payment.InFlightHTLCs() {
-		a := a
+		for _, a := range payment.InFlightHTLCs() {
+			a := a
 
-		log.Infof("Resuming payment shard %v for hash %v",
-			a.AttemptID, p.paymentHash)
+			log.Infof("Resuming payment shard %v for hash %v",
+				a.AttemptID, p.paymentHash)
 
-		shardHandler.collectResultAsync(&a.HTLCAttemptInfo)
+			shardHandler.collectResultAsync(&a.HTLCAttemptInfo)
+		}
 	}
 
 	// We'll continue until either our payment succeeds, or we encounter a
@@ -123,15 +125,22 @@ func (p *paymentLifecycle) resumePayment() ([32]byte, *route.Route, error) {
 			return [32]byte{}, nil, err
 		}
 
-		// We start every iteration by fetching the lastest state of
-		// the payment from the ControlTower. This ensures that we will
-		// act on the latest available information, whether we are
-		// resuming an existing payment or just sent a new attempt.
-		payment, err := p.router.cfg.Control.FetchPayment(
-			p.paymentHash,
-		)
-		if err != nil {
-			return [32]byte{}, nil, err
+		var payment *channeldb.MPPayment
+		if freshPayment == nil {
+			// We start every iteration by fetching the lastest state of
+			// the payment from the ControlTower. This ensures that we will
+			// act on the latest available information, whether we are
+			// resuming an existing payment or just sent a new attempt.
+			var err error
+			payment, err = p.router.cfg.Control.FetchPayment(
+				p.paymentHash,
+			)
+			if err != nil {
+				return [32]byte{}, nil, err
+			}
+		} else {
+			payment = freshPayment
+			freshPayment = nil
 		}
 
 		// Using this latest state of the payment, calculate
