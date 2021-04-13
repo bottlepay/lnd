@@ -1072,10 +1072,19 @@ func (l *channelLink) htlcManager() {
 		// If the previous event resulted in a non-empty batch, resume
 		// the batch ticker so that it can be cleared. Otherwise pause
 		// the ticker to prevent waking up the htlcManager while the
-		// batch is empty.
-		if l.channel.PendingLocalUpdateCount() > 0 {
+		// batch is empty. If the batch size is exceeded, commit
+		// immediately.
+		totalUpdateCount := l.channel.PendingUpdateCount(true)
+		switch {
+		case totalUpdateCount > uint64(l.cfg.BatchSize):
+			if !l.updateCommitTxOrFail() {
+				return
+			}
+
+		case totalUpdateCount > 0:
 			l.cfg.BatchTicker.Resume()
-		} else {
+
+		default:
 			l.cfg.BatchTicker.Pause()
 		}
 
@@ -1865,20 +1874,6 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 			Htlcs:   currentHtlcs,
 		}:
 		case <-l.quit:
-			return
-		}
-
-		// If both commitment chains are fully synced from our PoV,
-		// then we don't need to reply with a signature as both sides
-		// already have a commitment with the latest accepted.
-		if !l.channel.OweCommitment(true) {
-			return
-		}
-
-		// Otherwise, the remote party initiated the state transition,
-		// so we'll reply with a signature to provide them with their
-		// version of the latest commitment.
-		if !l.updateCommitTxOrFail() {
 			return
 		}
 
