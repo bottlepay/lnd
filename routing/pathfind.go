@@ -35,7 +35,7 @@ const (
 	// estimatedNodeCount is used to preallocate the path finding structures
 	// to avoid resizing and copies. It should be number on the same order as
 	// the number of active nodes in the network.
-	estimatedNodeCount = 10000
+	estimatedNodeCount = 10
 )
 
 // pathFinder defines the interface of a path finding algorithm.
