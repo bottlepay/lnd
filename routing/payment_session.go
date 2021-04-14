@@ -2,6 +2,9 @@ package routing
 
 import (
 	"fmt"
+	"math/rand"
+
+	"github.com/lightningnetwork/lnd/htlcswitch"
 
 	"github.com/btcsuite/btclog"
 	"github.com/lightningnetwork/lnd/build"
@@ -133,7 +136,7 @@ type PaymentSession interface {
 type paymentSession struct {
 	additionalEdges map[route.Vertex][]*channeldb.ChannelEdgePolicy
 
-	getBandwidthHints func() (map[uint64]lnwire.MilliSatoshi, error)
+	getBandwidthHints func() map[uint64]lnwire.MilliSatoshi
 
 	payment *LightningPayment
 
@@ -157,13 +160,18 @@ type paymentSession struct {
 
 	// log is a payment session-specific logger.
 	log btclog.Logger
+
+	sw *htlcswitch.Switch
+
+	source route.Vertex
 }
 
 // newPaymentSession instantiates a new payment session.
 func newPaymentSession(p *LightningPayment,
-	getBandwidthHints func() (map[uint64]lnwire.MilliSatoshi, error),
+	getBandwidthHints func() map[uint64]lnwire.MilliSatoshi,
 	getRoutingGraph func() (routingGraph, func(), error),
-	missionControl MissionController, pathFindingConfig PathFindingConfig) (
+	missionControl MissionController, pathFindingConfig PathFindingConfig,
+	sw *htlcswitch.Switch, source route.Vertex) (
 	*paymentSession, error) {
 
 	edges, err := RouteHintsToEdges(p.RouteHints, p.Target)
@@ -183,6 +191,8 @@ func newPaymentSession(p *LightningPayment,
 		missionControl:    missionControl,
 		minShardAmt:       DefaultShardMinAmt,
 		log:               build.NewPrefixLog(logPrefix, log),
+		sw:                sw,
+		source:            source,
 	}, nil
 }
 
@@ -242,6 +252,42 @@ func (p *paymentSession) RequestRoute(maxAmt, feeLimit lnwire.MilliSatoshi,
 		maxAmt = *p.payment.MaxShardAmt
 	}
 
+	// See if there is a routing shortcut possible by skipping graph exploration.
+	links, err := p.sw.GetLinks()
+	if err != nil {
+		return nil, err
+	}
+	rand.Shuffle(len(links), func(i, j int) {
+		links[i], links[j] = links[j], links[i]
+	})
+
+	for _, l := range links {
+		peer := l.Peer().PubKey()
+		if peer == p.payment.Target &&
+			l.Bandwidth() >= maxAmt {
+
+			path := []*channeldb.ChannelEdgePolicy{
+				&channeldb.ChannelEdgePolicy{
+					Node: &channeldb.LightningNode{
+						PubKeyBytes: peer,
+						Features:    l.Peer().RemoteFeatures(),
+					},
+					ChannelID: l.ShortChanID().ToUint64(),
+				},
+			}
+			return newRoute(
+				p.source, path, height,
+				finalHopParams{
+					amt:         maxAmt,
+					totalAmt:    p.payment.Amount,
+					cltvDelta:   finalCltvDelta,
+					records:     p.payment.DestCustomRecords,
+					paymentAddr: p.payment.PaymentAddr,
+				},
+			)
+		}
+	}
+
 	for {
 		// We'll also obtain a set of bandwidthHints from the lower
 		// layer for each of our outbound channels. This will allow the
@@ -249,10 +295,7 @@ func (p *paymentSession) RequestRoute(maxAmt, feeLimit lnwire.MilliSatoshi,
 		// don't have enough bandwidth to carry the payment. New
 		// bandwidth hints are queried for every new path finding
 		// attempt, because concurrent payments may change balances.
-		bandwidthHints, err := p.getBandwidthHints()
-		if err != nil {
-			return nil, err
-		}
+		bandwidthHints := p.getBandwidthHints()
 
 		p.log.Debugf("pathfinding for amt=%v", maxAmt)
 

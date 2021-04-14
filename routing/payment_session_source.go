@@ -3,6 +3,7 @@ package routing
 import (
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/lightningnetwork/lnd/zpay32"
@@ -38,6 +39,10 @@ type SessionSource struct {
 	// PathFindingConfig defines global parameters that control the
 	// trade-off in path finding between fees and probabiity.
 	PathFindingConfig PathFindingConfig
+
+	Switch *htlcswitch.Switch
+
+	SourceNode route.Vertex
 }
 
 // getRoutingGraph returns a routing graph and a clean-up function for
@@ -62,20 +67,10 @@ func (m *SessionSource) getRoutingGraph() (routingGraph, func(), error) {
 func (m *SessionSource) NewPaymentSession(p *LightningPayment) (
 	PaymentSession, error) {
 
-	sourceNode, err := m.Graph.SourceNode()
-	if err != nil {
-		return nil, err
-	}
-
-	getBandwidthHints := func() (map[uint64]lnwire.MilliSatoshi,
-		error) {
-
-		return generateBandwidthHints(sourceNode, m.QueryBandwidth)
-	}
-
 	session, err := newPaymentSession(
-		p, getBandwidthHints, m.getRoutingGraph,
+		p, m.QueryBandwidth, m.getRoutingGraph,
 		m.MissionControl, m.PathFindingConfig,
+		m.Switch, m.SourceNode,
 	)
 	if err != nil {
 		return nil, err

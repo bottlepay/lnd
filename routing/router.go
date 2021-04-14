@@ -1487,12 +1487,7 @@ func (r *ChannelRouter) FindRoute(source, target route.Vertex,
 
 	// We'll attempt to obtain a set of bandwidth hints that can help us
 	// eliminate certain routes early on in the path finding process.
-	bandwidthHints, err := generateBandwidthHints(
-		r.selfNode, r.cfg.QueryBandwidth,
-	)
-	if err != nil {
-		return nil, err
-	}
+	bandwidthHints := r.cfg.QueryBandwidth()
 
 	// We'll fetch the current block height so we can properly calculate the
 	// required HTLC time locks within the route.
@@ -2424,19 +2419,6 @@ func (r *ChannelRouter) MarkEdgeLive(chanID lnwire.ShortChannelID) error {
 	return r.cfg.Graph.MarkEdgeLive(chanID.ToUint64())
 }
 
-// generateBandwidthHints is a helper function that's utilized the main
-// findPath function in order to obtain hints from the lower layer w.r.t to the
-// available bandwidth of edges on the network. Currently, we'll only obtain
-// bandwidth hints for the edges we directly have open ourselves. Obtaining
-// these hints allows us to reduce the number of extraneous attempts as we can
-// skip channels that are inactive, or just don't have enough bandwidth to
-// carry the payment.
-func generateBandwidthHints(sourceNode *channeldb.LightningNode,
-	queryBandwidth func() map[uint64]lnwire.MilliSatoshi) (map[uint64]lnwire.MilliSatoshi, error) {
-
-	return queryBandwidth(), nil
-}
-
 // ErrNoChannel is returned when a route cannot be built because there are no
 // channels that satisfy all requirements.
 type ErrNoChannel struct {
@@ -2473,12 +2455,7 @@ func (r *ChannelRouter) BuildRoute(amt *lnwire.MilliSatoshi,
 
 	// We'll attempt to obtain a set of bandwidth hints that helps us select
 	// the best outgoing channel to use in case no outgoing channel is set.
-	bandwidthHints, err := generateBandwidthHints(
-		r.selfNode, r.cfg.QueryBandwidth,
-	)
-	if err != nil {
-		return nil, err
-	}
+	bandwidthHints := r.cfg.QueryBandwidth()
 
 	// Fetch the current block height outside the routing transaction, to
 	// prevent the rpc call blocking the database.

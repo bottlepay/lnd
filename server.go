@@ -762,6 +762,8 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		MissionControl:    s.missionControl,
 		QueryBandwidth:    queryBandwidth,
 		PathFindingConfig: pathFindingConfig,
+		Switch:            s.htlcSwitch,
+		SourceNode:        selfNode.PubKeyBytes,
 	}
 
 	paymentControl := channeldb.NewPaymentControl(remoteChanDB)
