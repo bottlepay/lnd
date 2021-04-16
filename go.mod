@@ -87,4 +87,6 @@ replace github.com/lightningnetwork/lnd/clock => ./clock
 
 replace git.schwanenlied.me/yawning/bsaes.git => github.com/Yawning/bsaes v0.0.0-20180720073208-c0276d75487e
 
+replace github.com/btcsuite/btcwallet/walletdb => github.com/bottlepay/btcwallet/walletdb v0.0.0-20210416070221-07a98cc0bdc6
+
 go 1.13
