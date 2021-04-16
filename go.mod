@@ -89,4 +89,6 @@ replace git.schwanenlied.me/yawning/bsaes.git => github.com/Yawning/bsaes v0.0.0
 
 replace github.com/lightningnetwork/lightning-onion => github.com/joostjager/lightning-onion v0.0.0-20210412125830-176e3941f798
 
+replace github.com/btcsuite/btcwallet/walletdb => github.com/bottlepay/btcwallet/walletdb v0.0.0-20210416070221-07a98cc0bdc6
+
 go 1.13
