@@ -172,11 +172,16 @@ func (b *readWriteBucket) CreateBucket(key []byte) (
 		return nil, err
 	}
 
-	err = b.tx.tx.QueryRowContext(
+	_, err = b.tx.tx.ExecContext(
 		context.TODO(),
-		"insert into "+b.table+" (parent_id, key) values($1, $2) RETURNING id",
+		"insert into "+b.table+" (parent_id, key) values($1, $2)",
 		b.id, key,
-	).Scan(&id)
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	id, err = b.getLastInsertId()
 	if err != nil {
 		return nil, err
 	}
@@ -207,11 +212,16 @@ func (b *readWriteBucket) CreateBucketIfNotExists(key []byte) (
 
 	switch {
 	case err == sql.ErrNoRows:
-		err = b.tx.tx.QueryRowContext(
+		_, err = b.tx.tx.ExecContext(
 			context.TODO(),
-			"insert into "+b.table+" (parent_id, key) values($1, $2) RETURNING id",
+			"insert into "+b.table+" (parent_id, key) values($1, $2)",
 			b.id, key,
-		).Scan(&id)
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		id, err = b.getLastInsertId()
 		if err != nil {
 			return nil, err
 		}
@@ -224,6 +234,19 @@ func (b *readWriteBucket) CreateBucketIfNotExists(key []byte) (
 	}
 
 	return newReadWriteBucket(b.tx, b.table, &id), nil
+}
+
+func (b *readWriteBucket) getLastInsertId() (int64, error) {
+	var id int64
+	err := b.tx.tx.QueryRowContext(
+		context.TODO(),
+		"select last_insert_rowid()",
+	).Scan(&id)
+	if err != nil {
+		return 0, err
+	}
+
+	return id, nil
 }
 
 // DeleteNestedBucket deletes the nested bucket and its sub-buckets
@@ -339,8 +362,8 @@ func (b *readWriteBucket) NextSequence() (uint64, error) {
 func (b *readWriteBucket) SetSequence(v uint64) error {
 	result, err := b.tx.tx.ExecContext(
 		context.TODO(),
-		"UPDATE "+b.table+" SET sequence=$2 WHERE id=$1",
-		b.id, int64(v),
+		"UPDATE "+b.table+" SET sequence=$1 WHERE id=$2",
+		int64(v), b.id,
 	)
 	if err != nil {
 		return err

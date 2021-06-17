@@ -154,6 +154,7 @@ func TestDb(t *testing.T) {
 
 		//Try to delete all data.
 		require.NoError(t, tx.DeleteTopLevelBucket([]byte("top")))
+
 		require.NoError(t, top.ForEach(func(k, v []byte) error {
 			require.Fail(t, "unexpected data")
 			return nil

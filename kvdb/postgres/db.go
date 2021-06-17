@@ -2,14 +2,16 @@ package postgres
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
 	"errors"
+	"fmt"
 	"io"
-	"log"
+	"os"
 	"sync"
 
 	"github.com/btcsuite/btcwallet/walletdb"
-	_ "github.com/jackc/pgx/v4/stdlib"
+	_ "github.com/mattn/go-sqlite3"
 )
 
 // KV stores a key/value pair.
@@ -33,36 +35,38 @@ var _ walletdb.DB = (*db)(nil)
 // newPostgresBackend returns a db object initialized with the passed backend
 // config. If etcd connection cannot be estabished, then returns error.
 func newPostgresBackend(ctx context.Context, cfg Config) (*db, error) {
-	dbConn, err := sql.Open("pgx", cfg.Dsn)
+	dsnHash := sha256.Sum256([]byte(cfg.Dsn))
+	file := fmt.Sprintf("sqlite-%x.db", dsnHash)
+
+	os.Remove(file)
+
+	dbConn, err := sql.Open("sqlite3", file)
 	if err != nil {
-		log.Fatal(err)
+		return nil, err
 	}
 
 	_, err = dbConn.ExecContext(context.TODO(), `
-CREATE TABLE IF NOT EXISTS public.kv
+PRAGMA foreign_keys = ON;
+
+CREATE TABLE IF NOT EXISTS kv
 (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
     key bytea NOT NULL,
     value bytea,
     parent_id bigint,
-    id bigserial,
     sequence bigint,
-    CONSTRAINT kv_pkey PRIMARY KEY (id),
     CONSTRAINT parent FOREIGN KEY (parent_id)
-        REFERENCES public.kv (id) MATCH SIMPLE
-        ON UPDATE NO ACTION
+        REFERENCES kv (id) MATCH SIMPLE
         ON DELETE CASCADE
-        NOT VALID
 );
 
 CREATE INDEX IF NOT EXISTS fki_parent
-    ON public.kv USING btree
-    (parent_id ASC NULLS LAST)
-    TABLESPACE pg_default;
+    ON kv 
+    (parent_id ASC);
 
 CREATE UNIQUE INDEX IF NOT EXISTS keys
-    ON public.kv USING btree
-    (parent_id ASC NULLS LAST, key ASC NULLS LAST)
-    TABLESPACE pg_default;
+    ON kv 
+    (parent_id ASC, key ASC);
 
 DELETE FROM kv;
 

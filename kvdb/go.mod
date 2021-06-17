@@ -15,6 +15,7 @@ require (
 	github.com/jackc/pgx/v4 v4.11.0
 	github.com/json-iterator/go v1.1.9 // indirect
 	github.com/lightningnetwork/lnd/healthcheck v1.0.0
+	github.com/mattn/go-sqlite3 v1.14.7
 	github.com/stretchr/testify v1.7.0
 	github.com/tmc/grpc-websocket-proxy v0.0.0-20190109142713-0ad062ec5ee5 // indirect
 	go.etcd.io/bbolt v1.3.5-0.20200615073812-232d8fc87f50
