@@ -1,17 +1,16 @@
 package postgres
 
 import (
-	"context"
+	"database/sql"
 
 	"github.com/btcsuite/btcwallet/walletdb"
-	"github.com/jackc/pgx/v4"
 )
 
 // readWriteTx holds a reference to an open postgres transaction.
 type readWriteTx struct {
 	readOnly bool
 	db       *db
-	tx       pgx.Tx
+	tx       *sql.Tx
 
 	// onCommit gets called upon commit.
 	onCommit func()
@@ -34,8 +33,7 @@ func newReadWriteTx(db *db, readOnly bool) (*readWriteTx, error) {
 		db.lock.Lock()
 	}
 
-	ctx := context.TODO()
-	tx, err := db.pool.BeginTx(ctx, pgx.TxOptions{})
+	tx, err := db.db.Begin()
 	if err != nil {
 		return nil, err
 	}
@@ -89,7 +87,7 @@ func (tx *readWriteTx) Rollback() error {
 		return walletdb.ErrTxClosed
 	}
 
-	err := tx.tx.Rollback(context.TODO())
+	err := tx.tx.Rollback()
 	if err != nil {
 		return err
 	}
@@ -131,7 +129,7 @@ func (tx *readWriteTx) Commit() error {
 	}
 
 	// Try committing the transaction.
-	if err := tx.tx.Commit(context.TODO()); err != nil {
+	if err := tx.tx.Commit(); err != nil {
 		return err
 	}
 

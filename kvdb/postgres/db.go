@@ -2,13 +2,14 @@ package postgres
 
 import (
 	"context"
+	"database/sql"
 	"errors"
-	"fmt"
 	"io"
+	"log"
 	"sync"
 
 	"github.com/btcsuite/btcwallet/walletdb"
-	"github.com/jackc/pgx/v4/pgxpool"
+	_ "github.com/jackc/pgx/v4/stdlib"
 )
 
 // KV stores a key/value pair.
@@ -19,9 +20,9 @@ type KV struct {
 
 // db holds a reference to the postgres connection connection.
 type db struct {
-	cfg  Config
-	ctx  context.Context
-	pool *pgxpool.Pool
+	cfg Config
+	ctx context.Context
+	db  *sql.DB
 
 	lock sync.RWMutex
 }
@@ -32,12 +33,12 @@ var _ walletdb.DB = (*db)(nil)
 // newPostgresBackend returns a db object initialized with the passed backend
 // config. If etcd connection cannot be estabished, then returns error.
 func newPostgresBackend(ctx context.Context, cfg Config) (*db, error) {
-	pool, err := pgxpool.Connect(ctx, cfg.Dsn)
+	dbConn, err := sql.Open("pgx", cfg.Dsn)
 	if err != nil {
-		return nil, fmt.Errorf("unable to connect to database: %v", err)
+		log.Fatal(err)
 	}
 
-	_, err = pool.Exec(context.TODO(), `
+	_, err = dbConn.ExecContext(context.TODO(), `
 CREATE TABLE IF NOT EXISTS public.kv
 (
     key bytea NOT NULL,
@@ -63,7 +64,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS keys
     (parent_id ASC NULLS LAST, key ASC NULLS LAST)
     TABLESPACE pg_default;
 
--- DELETE FROM kv;
+DELETE FROM kv;
 
 	`)
 	if err != nil {
@@ -71,9 +72,9 @@ CREATE UNIQUE INDEX IF NOT EXISTS keys
 	}
 
 	backend := &db{
-		cfg:  cfg,
-		ctx:  ctx,
-		pool: pool,
+		cfg: cfg,
+		ctx: ctx,
+		db:  dbConn,
 	}
 
 	return backend, nil
@@ -152,7 +153,7 @@ func (db *db) Copy(w io.Writer) error {
 // Close cleanly shuts down the database and syncs all data.
 // This function is part of the walletdb.Db interface implementation.
 func (db *db) Close() error {
-	db.pool.Close()
+	db.db.Close()
 
 	return nil
 }
