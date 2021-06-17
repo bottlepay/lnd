@@ -22,6 +22,7 @@ require (
 	go.etcd.io/etcd v3.4.14+incompatible
 	go.uber.org/zap v1.14.1 // indirect
 	golang.org/x/net v0.0.0-20210226172049-e18ecbb05110
+	modernc.org/sqlite v1.10.8
 )
 
 // Fix incompatibility of etcd go.mod package.

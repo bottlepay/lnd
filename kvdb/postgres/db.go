@@ -11,7 +11,7 @@ import (
 	"sync"
 
 	"github.com/btcsuite/btcwallet/walletdb"
-	_ "github.com/mattn/go-sqlite3"
+	_ "modernc.org/sqlite"
 )
 
 // KV stores a key/value pair.
@@ -40,7 +40,7 @@ func newPostgresBackend(ctx context.Context, cfg Config) (*db, error) {
 
 	os.Remove(file)
 
-	dbConn, err := sql.Open("sqlite3", file)
+	dbConn, err := sql.Open("sqlite", file)
 	if err != nil {
 		return nil, err
 	}
