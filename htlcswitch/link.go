@@ -404,7 +404,7 @@ type hodlHtlc struct {
 func NewChannelLink(cfg ChannelLinkConfig,
 	channel *lnwallet.LightningChannel) ChannelLink {
 
-	logPrefix := fmt.Sprintf("ChannelLink(%v):", channel.ShortChanID())
+	logPrefix := fmt.Sprintf("ChannelLink(%v):", channel.ChannelPoint())
 
 	return &channelLink{
 		cfg:         cfg,
@@ -1062,9 +1062,13 @@ func (l *channelLink) htlcManager() {
 		// the batch ticker so that it can be cleared. Otherwise pause
 		// the ticker to prevent waking up the htlcManager while the
 		// batch is empty.
-		if l.channel.PendingLocalUpdateCount() > 0 {
+		pendingLocalUpdateCount := l.channel.PendingLocalUpdateCount()
+		if pendingLocalUpdateCount > 0 {
+			l.log.Debugf("Batch ticker resumed: pending_local_update_count=%v",
+				pendingLocalUpdateCount)
 			l.cfg.BatchTicker.Resume()
 		} else {
+			l.log.Debugf("Batch ticker paused")
 			l.cfg.BatchTicker.Pause()
 		}
 
@@ -1131,6 +1135,7 @@ func (l *channelLink) htlcManager() {
 			return
 
 		case <-l.cfg.BatchTicker.Ticks():
+			l.log.Debugf("Batch ticker fired")
 			// Attempt to extend the remote commitment chain
 			// including all the currently pending entries. If the
 			// send was unsuccessful, then abandon the update,
@@ -1342,7 +1347,7 @@ func (l *channelLink) handleDownstreamUpdateAdd(pkt *htlcPacket) error {
 		)
 	}
 
-	l.log.Tracef("received downstream htlc: payment_hash=%x, "+
+	l.log.Debugf("received downstream htlc: payment_hash=%x, "+
 		"local_log_index=%v, pend_updates=%v",
 		htlc.PaymentHash[:], index,
 		l.channel.PendingLocalUpdateCount())
@@ -1627,7 +1632,7 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 			return
 		}
 
-		l.log.Tracef("receive upstream htlc with payment hash(%x), "+
+		l.log.Debugf("receive upstream htlc with payment hash(%x), "+
 			"assigning index: %v", msg.PaymentHash[:], index)
 
 	case *lnwire.UpdateFulfillHTLC:
@@ -2022,7 +2027,7 @@ func (l *channelLink) updateCommitTx() error {
 	if err == lnwallet.ErrNoWindow {
 		l.cfg.PendingCommitTicker.Resume()
 
-		l.log.Tracef("revocation window exhausted, unable to send: "+
+		l.log.Debugf("revocation window exhausted, unable to send: "+
 			"%v, pend_updates=%v, dangling_closes%v",
 			l.channel.PendingLocalUpdateCount(),
 			newLogClosure(func() string {
@@ -2032,6 +2037,7 @@ func (l *channelLink) updateCommitTx() error {
 				return spew.Sdump(l.closedCircuits)
 			}),
 		)
+
 		return nil
 	} else if err != nil {
 		return err
@@ -2390,7 +2396,7 @@ func (l *channelLink) String() string {
 //
 // NOTE: Part of the ChannelLink interface.
 func (l *channelLink) HandleSwitchPacket(pkt *htlcPacket) error {
-	l.log.Tracef("received switch packet inkey=%v, outkey=%v",
+	l.log.Debugf("received switch packet inkey=%v, outkey=%v",
 		pkt.inKey(), pkt.outKey())
 
 	return l.mailBox.AddPacket(pkt)
@@ -2401,7 +2407,7 @@ func (l *channelLink) HandleSwitchPacket(pkt *htlcPacket) error {
 //
 // NOTE: Part of the ChannelLink interface.
 func (l *channelLink) HandleLocalAddPacket(pkt *htlcPacket) error {
-	l.log.Tracef("received switch packet outkey=%v", pkt.outKey())
+	l.log.Debugf("received switch packet outkey=%v", pkt.outKey())
 
 	// Create a buffered result channel to prevent the link from blocking.
 	errChan := make(chan error, 1)
@@ -2576,7 +2582,7 @@ func (l *channelLink) processRemoteSettleFails(fwdPkg *channeldb.FwdPkg,
 func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 	lockedInHtlcs []*lnwallet.PaymentDescriptor) {
 
-	l.log.Tracef("processing %d remote adds for height %d",
+	l.log.Debugf("processing %d remote adds for height %d",
 		len(lockedInHtlcs), fwdPkg.Height)
 
 	decodeReqs := make(

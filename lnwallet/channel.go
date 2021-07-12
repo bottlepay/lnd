@@ -3525,7 +3525,6 @@ func (lc *LightningChannel) SignNextCommitment() (lnwire.Sig, []lnwire.Sig, []ch
 	// new state, we consume a prior revocation point.
 	commitPoint := lc.channelState.RemoteNextRevocation
 	if lc.remoteCommitChain.hasUnackedCommitment() || commitPoint == nil {
-
 		return sig, htlcSigs, nil, ErrNoWindow
 	}
 
