@@ -1730,6 +1730,8 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 		}
 
 	case *lnwire.CommitSig:
+		l.log.Debugf("Processing incoming CommitSig")
+
 		// Since we may have learned new preimages for the first time,
 		// we'll add them to our preimage cache. By doing this, we
 		// ensure any contested contracts watched by any on-chain
@@ -1788,6 +1790,8 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 			return
 		}
 
+		l.log.Debugf("Processing incoming CommitSig - revoke current commitment")
+
 		// As we've just accepted a new state, we'll now
 		// immediately send the remote peer a revocation for our prior
 		// state.
@@ -1801,6 +1805,9 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 		// Since we just revoked our commitment, we may have a new set
 		// of HTLC's on our commitment, so we'll send them over our
 		// HTLC update channel so any callers can be notified.
+
+		l.log.Debugf("Processing incoming CommitSig - update contractcourt")
+
 		select {
 		case l.htlcUpdates <- &contractcourt.ContractUpdate{
 			HtlcKey: contractcourt.LocalHtlcSet,
@@ -1809,6 +1816,8 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 		case <-l.quit:
 			return
 		}
+
+		l.log.Debugf("Processing incoming CommitSig - OweCommitment: %v", l.channel.OweCommitment(true))
 
 		// If both commitment chains are fully synced from our PoV,
 		// then we don't need to reply with a signature as both sides
@@ -1825,6 +1834,8 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 		}
 
 	case *lnwire.RevokeAndAck:
+		l.log.Debugf("Processing incoming RevokeAndAck")
+
 		// We've received a revocation from the remote chain, if valid,
 		// this moves the remote chain forward, and expands our
 		// revocation window.
@@ -1837,6 +1848,8 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 				"unable to accept revocation: %v", err)
 			return
 		}
+
+		l.log.Debugf("Processing incoming RevokeAndAck - update contractcourt")
 
 		// The remote party now has a new primary commitment, so we'll
 		// update the contract court to be aware of this new set (the
@@ -1873,6 +1886,8 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 			}
 		}
 
+		l.log.Debugf("Processing incoming RevokeAndAck - process updates")
+
 		l.processRemoteSettleFails(fwdPkg, settleFails)
 		l.processRemoteAdds(fwdPkg, adds)
 
@@ -1890,6 +1905,7 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 		// processRemoteAdds. Also in case there are no local updates,
 		// but there are still remote updates that are not in the remote
 		// commit tx yet, send out an update.
+		l.log.Debugf("Processing incoming RevokeAndAck - owe commitment: %v", l.channel.OweCommitment(true))
 		if l.channel.OweCommitment(true) {
 			if !l.updateCommitTxOrFail() {
 				return
