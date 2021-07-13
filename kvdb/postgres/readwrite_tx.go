@@ -3,8 +3,10 @@ package postgres
 import (
 	"bytes"
 	"database/sql"
+	"fmt"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/btcsuite/btcwallet/walletdb"
 )
@@ -30,10 +32,19 @@ func newReadWriteTx(db *db, readOnly bool) (*readWriteTx, error) {
 	// lock in Postgres, meaning that each table would need to be locked
 	// individually. Perhaps an advisory lock could perform this function
 	// too.
+	start := time.Now()
 	if readOnly {
 		db.lock.RLock()
+		elapsed := time.Since(start)
+		if elapsed > time.Second {
+			fmt.Printf("Read lock obtained, elapsed=%v\n", elapsed)
+		}
 	} else {
 		db.lock.Lock()
+		elapsed := time.Since(start)
+		if elapsed > time.Second {
+			fmt.Printf("Write lock obtained, elapsed=%v\n", elapsed)
+		}
 	}
 
 	tx, err := db.db.Begin()
